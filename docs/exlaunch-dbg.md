@@ -42,3 +42,8 @@ non-svc assertion (e.g. the `memcmp(ro, rw)` RW-alias check in
   (`src/Ryujinx.HLE/HOS/Kernel/SupervisorCall/Syscall.cs`)
 - `.github/workflows/build-ipa.yml` — CI: applies the patch, builds the IPA
   (macOS 26 / Xcode 26, unsigned)
+
+## Status
+
+- CI workflow registered; push-triggered runs start from the commit that adds
+  this line (initial workflow-file commit does not always trigger a run).
