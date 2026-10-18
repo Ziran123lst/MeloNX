@@ -25,6 +25,9 @@ jobs:
         with:
           global-json-file: global.json
 
+      - name: Apply exlaunch-dbg patch
+        run: git apply patches/exlaunch_dbg.patch
+
       - name: Make dotnet visible to Xcode's build script
         # The "Ryujinx" legacy target runs distribution/ios/build.sh from inside
         # xcodebuild, which probes /usr/local/bin for dotnet.
@@ -79,8 +82,13 @@ jobs:
           name: MeloNX-unsigned-ipa
           path: build/MeloNX-unsigned.ipa
 
-      - name: Update v2.5 release asset
+      - name: Update release asset (only if the release tag exists)
         if: github.ref_name == 'master'
         env:
           GH_TOKEN: ${{ github.token }}
-        run: gh release upload v2.5 build/MeloNX-unsigned.ipa --clobber -R "$GITHUB_REPOSITORY"
+        run: |
+          if gh release view v2.5 -R "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            gh release upload v2.5 build/MeloNX-unsigned.ipa --clobber -R "$GITHUB_REPOSITORY"
+          else
+            echo "Release v2.5 not present in this repo; skipping asset upload."
+          fi
