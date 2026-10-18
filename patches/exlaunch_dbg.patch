@@ -1,0 +1,165 @@
+--- a/src/Ryujinx.HLE/HOS/Kernel/SupervisorCall/Syscall.cs
++++ b/src/Ryujinx.HLE/HOS/Kernel/SupervisorCall/Syscall.cs
+@@ -20,6 +20,19 @@
+     {
+         private readonly KernelContext _context;
+ 
++        // [exlaunch-dbg] Instrumentation for exlaunch mods: exlaunch's loader
++        // (subsdk9) aborts itself (0x69696969 marker) when any of these svcs
++        // fails during boot (RwPages / virtmem / proc_handle). Log the failure
++        // here so the abort site can be identified from the console log.
++        private static void LogExlaunchSvcFailure(string name, string detail, Result result)
++        {
++            if (result != Result.Success)
++            {
++                Logger.Warning?.Print(LogClass.KernelSvc,
++                    $"[exlaunch-dbg] {name} failed ({detail}): {result} (0x{result.ErrorCode:X8})");
++            }
++        }
++
+         public Syscall(KernelContext context)
+         {
+             _context = context;
+@@ -1069,6 +1082,7 @@
+                     : KernelResult.InvalidMemState;
+             }
+ 
++            LogExlaunchSvcFailure(nameof(QueryMemory), $"address=0x{address:X16}", result);
+             return result;
+         }
+ 
+@@ -1593,12 +1607,14 @@
+ 
+             if (srcProcess == null)
+             {
++                LogExlaunchSvcFailure(nameof(MapProcessMemory), $"handle=0x{handle:X8}, src=0x{src:X16}, dst=0x{dst:X16}, size=0x{size:X8}", KernelResult.InvalidHandle);
+                 return KernelResult.InvalidHandle;
+             }
+ 
+             if (!srcProcess.MemoryManager.InsideAddrSpace(src, size) ||
+                 !dstProcess.MemoryManager.CanContain(dst, size, MemoryState.ProcessMemory))
+             {
++                LogExlaunchSvcFailure(nameof(MapProcessMemory), $"handle=0x{handle:X8}, src=0x{src:X16}, dst=0x{dst:X16}, size=0x{size:X8}", KernelResult.InvalidMemRange);
+                 return KernelResult.InvalidMemRange;
+             }
+ 
+@@ -1617,10 +1633,25 @@
+ 
+             if (result != Result.Success)
+             {
++                LogExlaunchSvcFailure(nameof(MapProcessMemory), $"src=0x{src:X16}, size=0x{size:X8} (GetPagesIfStateEquals)", result);
+                 return result;
+             }
+ 
+-            return dstProcess.MemoryManager.MapPages(dst, pageList, MemoryState.ProcessMemory, KMemoryPermission.ReadAndWrite);
++            result = dstProcess.MemoryManager.MapPages(dst, pageList, MemoryState.ProcessMemory, KMemoryPermission.ReadAndWrite);
++
++            // [exlaunch-dbg] Log success too: this shows how far exlaunch's RwPages
++            // got before its non-svc assertion (e.g. memcmp) aborts.
++            if (result != Result.Success)
++            {
++                LogExlaunchSvcFailure(nameof(MapProcessMemory), $"src=0x{src:X16}, dst=0x{dst:X16}, size=0x{size:X8} (MapPages)", result);
++            }
++            else
++            {
++                Logger.Info?.Print(LogClass.KernelSvc,
++                    $"[exlaunch-dbg] MapProcessMemory OK: src=0x{src:X16}, dst=0x{dst:X16}, size=0x{size:X8}, handle=0x{handle:X8}");
++            }
++
++            return result;
+         }
+ 
+         [Svc(0x75)]
+@@ -1650,12 +1681,14 @@
+ 
+             if (srcProcess == null)
+             {
++                LogExlaunchSvcFailure(nameof(UnmapProcessMemory), $"handle=0x{handle:X8}, src=0x{src:X16}, dst=0x{dst:X16}, size=0x{size:X8}", KernelResult.InvalidHandle);
+                 return KernelResult.InvalidHandle;
+             }
+ 
+             if (!srcProcess.MemoryManager.InsideAddrSpace(src, size) ||
+                 !dstProcess.MemoryManager.CanContain(dst, size, MemoryState.ProcessMemory))
+             {
++                LogExlaunchSvcFailure(nameof(UnmapProcessMemory), $"src=0x{src:X16}, dst=0x{dst:X16}, size=0x{size:X8}", KernelResult.InvalidMemRange);
+                 return KernelResult.InvalidMemRange;
+             }
+ 
+@@ -1663,9 +1696,13 @@
+ 
+             if (result != Result.Success)
+             {
++                LogExlaunchSvcFailure(nameof(UnmapProcessMemory), $"src=0x{src:X16}, dst=0x{dst:X16}, size=0x{size:X8}", result);
+                 return result;
+             }
+ 
++            Logger.Info?.Print(LogClass.KernelSvc,
++                $"[exlaunch-dbg] UnmapProcessMemory OK: src=0x{src:X16}, dst=0x{dst:X16}, size=0x{size:X8}");
++
+             return Result.Success;
+         }
+ 
+@@ -1923,6 +1960,10 @@
+         {
+             value = 0;
+ 
++            // [exlaunch-dbg] exlaunch's virtmemSetup / proc_handle call svcGetInfo
++            // with the pseudo-handles 0 (INVALID_HANDLE) or 0xFFFF8001.
++            bool isExlaunchStyle = handle == 0 || handle == 0xFFFF8001;
++
+             switch (id)
+             {
+                 case InfoType.CoreMask:
+@@ -1958,6 +1999,10 @@
+ 
+                         if (process == null)
+                         {
++                            if (isExlaunchStyle)
++                            {
++                                LogExlaunchSvcFailure(nameof(GetInfo), $"id={id}, handle=0x{handle:X8}, subId={subId} (region lookup)", KernelResult.InvalidHandle);
++                            }
+                             return KernelResult.InvalidHandle;
+                         }
+ 
+@@ -2206,11 +2251,19 @@
+                     {
+                         if (handle != 0)
+                         {
++                            if (isExlaunchStyle)
++                            {
++                                LogExlaunchSvcFailure(nameof(GetInfo), $"id={id}, handle=0x{handle:X8}, subId={subId}", KernelResult.InvalidHandle);
++                            }
+                             return KernelResult.InvalidHandle;
+                         }
+ 
+                         if (subId != 0)
+                         {
++                            if (isExlaunchStyle)
++                            {
++                                LogExlaunchSvcFailure(nameof(GetInfo), $"id={id}, handle=0x{handle:X8}, subId={subId}", KernelResult.InvalidCombination);
++                            }
+                             return KernelResult.InvalidCombination;
+                         }
+ 
+@@ -2221,6 +2274,10 @@
+ 
+                         if (result != Result.Success)
+                         {
++                            if (isExlaunchStyle)
++                            {
++                                LogExlaunchSvcFailure(nameof(GetInfo), $"id={id} (GenerateHandle)", result);
++                            }
+                             return result;
+                         }
+ 
+@@ -2229,6 +2286,10 @@
+                     }
+ 
+                 default:
++                    if (isExlaunchStyle)
++                    {
++                        LogExlaunchSvcFailure(nameof(GetInfo), $"id={id} (unsupported InfoType), handle=0x{handle:X8}, subId={subId}", KernelResult.InvalidEnumValue);
++                    }
+                     return KernelResult.InvalidEnumValue;
+             }
+ 
