@@ -43,6 +43,21 @@ jobs:
           cp -R src/MeloNX/MeloNX/Dependencies "$GITHUB_WORKSPACE/src/MeloNX/MeloNX/"
           du -sh "$GITHUB_WORKSPACE/src/MeloNX/MeloNX/Dependencies"
 
+      - name: Build & vendor Ryujinx.LibHac nupkg
+        # The private feed that hosted Ryujinx.LibHac 0.21.0-alpha.129 is offline
+        # (git.ryujinx.app is dead, no public mirror of the nupkg exists). The
+        # source IS mirrored: codeberg.org/mmmardigan/libhac is the ryubing fork
+        # (PackageId=Ryujinx.LibHac, VersionPrefix=0.21.0). Rebuild the exact
+        # pinned version and vendor it so restore can resolve the reference.
+        run: |
+          set -e
+          rm -rf /tmp/libhac-src /tmp/libhac-out
+          git clone --depth 1 https://codeberg.org/mmmardigan/libhac.git /tmp/libhac-src
+          cd /tmp/libhac-src
+          dotnet pack src/LibHac/LibHac.csproj -c Release -p:PackageVersion=0.21.0-alpha.129 -o /tmp/libhac-out
+          cp /tmp/libhac-out/Ryujinx.LibHac.0.21.0-alpha.129.nupkg "$GITHUB_WORKSPACE/packages/"
+          ls -la "$GITHUB_WORKSPACE/packages/"
+
       - name: Vendor MoltenVK nupkg (from fetched Dependencies)
         # The private feed that hosted Ryujinx.Graphics.Vulkan.Dependencies.MoltenVK
         # 1.2.0 is offline, so rebuild the nupkg from the official Dependencies
