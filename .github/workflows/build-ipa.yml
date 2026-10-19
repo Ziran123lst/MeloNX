@@ -28,6 +28,21 @@ jobs:
       - name: Apply exlaunch-dbg patch
         run: git apply patches/exlaunch_dbg.patch
 
+      - name: Fetch native dependencies (official Dependencies folder)
+        # The GitHub mirror omits src/MeloNX/MeloNX/Dependencies (~93 MB of native
+        # libs: MoltenVK, SDL3, ffmpeg, libteakra, libSPIRV, BreakpointJIT...).
+        # Pull them from the official StarForge repo with a sparse partial clone
+        # (plain zip archives of that tree truncate mid-download).
+        run: |
+          set -e
+          rm -rf /tmp/melonx-deps
+          git clone --depth 1 --filter=blob:none --sparse https://starforgejo.dev/projects/MeloNX.git /tmp/melonx-deps
+          cd /tmp/melonx-deps
+          git sparse-checkout set src/MeloNX/MeloNX/Dependencies
+          mkdir -p "$GITHUB_WORKSPACE/src/MeloNX/MeloNX"
+          cp -R src/MeloNX/MeloNX/Dependencies "$GITHUB_WORKSPACE/src/MeloNX/MeloNX/"
+          du -sh "$GITHUB_WORKSPACE/src/MeloNX/MeloNX/Dependencies"
+
       - name: Make dotnet visible to Xcode's build script
         # The "Ryujinx" legacy target runs distribution/ios/build.sh from inside
         # xcodebuild, which probes /usr/local/bin for dotnet.
@@ -86,9 +101,4 @@ jobs:
         if: github.ref_name == 'master'
         env:
           GH_TOKEN: ${{ github.token }}
-        run: |
-          if gh release view v2.5 -R "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
-            gh release upload v2.5 build/MeloNX-unsigned.ipa --clobber -R "$GITHUB_REPOSITORY"
-          else
-            echo "Release v2.5 not present in this repo; skipping asset upload."
-          fi
+        run: gh release upload v2.5 build/MeloNX-unsigned.ipa --clobber -R "$GITHUB_REPOSITORY" || true
