@@ -43,6 +43,33 @@ jobs:
           cp -R src/MeloNX/MeloNX/Dependencies "$GITHUB_WORKSPACE/src/MeloNX/MeloNX/"
           du -sh "$GITHUB_WORKSPACE/src/MeloNX/MeloNX/Dependencies"
 
+      - name: Vendor MoltenVK nupkg (from fetched Dependencies)
+        # The private feed that hosted Ryujinx.Graphics.Vulkan.Dependencies.MoltenVK
+        # 1.2.0 is offline, so rebuild the nupkg from the official Dependencies
+        # copy of libMoltenVK.dylib so NuGet restore can resolve the reference.
+        run: |
+          set -e
+          mkdir -p packages/stage/runtimes/ios-arm64/native
+          cp src/MeloNX/MeloNX/Dependencies/libMoltenVK.dylib packages/stage/runtimes/ios-arm64/native/
+          cat > packages/stage/Ryujinx.Graphics.Vulkan.Dependencies.MoltenVK.nuspec <<'NUSPEC'
+          <?xml version="1.0" encoding="utf-8"?>
+          <package xmlns="http://schemas.microsoft.com/packaging/2013/05/nuspec.xsd">
+            <metadata>
+              <id>Ryujinx.Graphics.Vulkan.Dependencies.MoltenVK</id>
+              <version>1.2.0</version>
+              <authors>Ryujinx</authors>
+              <requireLicenseAcceptance>false</requireLicenseAcceptance>
+              <description>MoltenVK native dependency (re-vendored from official MeloNX Dependencies)</description>
+            </metadata>
+            <files>
+              <file src="runtimes/**" target="runtimes" />
+            </files>
+          </package>
+          NUSPEC
+          (cd packages/stage && zip -qry ../Ryujinx.Graphics.Vulkan.Dependencies.MoltenVK.1.2.0.nupkg Ryujinx.Graphics.Vulkan.Dependencies.MoltenVK.nuspec runtimes)
+          rm -rf packages/stage
+          ls -la packages/
+
       - name: Make dotnet visible to Xcode's build script
         # The "Ryujinx" legacy target runs distribution/ios/build.sh from inside
         # xcodebuild, which probes /usr/local/bin for dotnet.
